@@ -39,4 +39,4 @@ composer setup
 composer dev
 ```
 
-Navigate to `http://127.0.0.1:8000/broadcasting` to see the real-time broadcasting demo.
+Navigate to `http://127.0.0.1:8000` to see the real-time broadcasting demo.
