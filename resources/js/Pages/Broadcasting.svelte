@@ -19,33 +19,42 @@
     const connectionStatus = createConnectionStatus();
     const status = $derived(connectionStatus());
 
+    // Channel state tracking
+    let channelState = $state({
+        public: { listening: true, left: false },
+        private: { listening: true, left: false },
+        presence: { listening: true, left: false },
+        model: { listening: true, left: false },
+        notification: { listening: true, left: false },
+    });
+
     // 2. Public Channel
     let publicEvents = $state([]);
-    createEchoPublic('announcements', 'PublicAnnouncementMade', (e) => {
+    const publicChannel = createEchoPublic('announcements', 'PublicAnnouncementMade', (e) => {
         publicEvents = [...publicEvents, { message: e.message, timestamp: e.timestamp }];
     });
 
     // 3. Private Channel
     let privateEvents = $state([]);
-    createEcho(`orders.${userId}`, 'OrderStatusUpdated', (e) => {
+    const privateChannel = createEcho(`orders.${userId}`, 'OrderStatusUpdated', (e) => {
         privateEvents = [...privateEvents, { orderId: e.orderId, status: e.status, timestamp: e.timestamp }];
     });
 
     // 4. Presence Channel
     let presenceMessages = $state([]);
     let presenceUsers = $state([]);
-    const presence = createEchoPresence('chat-room', 'ChatMessageSent', (e) => {
+    const presenceChannel = createEchoPresence('chat-room', 'ChatMessageSent', (e) => {
         presenceMessages = [...presenceMessages, { userName: e.userName, message: e.message, timestamp: e.timestamp }];
     });
 
-    presence.channel()
+    presenceChannel.channel()
         .here((users) => { presenceUsers = users; })
         .joining((u) => { presenceUsers = [...presenceUsers, u]; })
         .leaving((u) => { presenceUsers = presenceUsers.filter(p => p.id !== u.id); });
 
     // 5. Model Events
     let modelEvents = $state([]);
-    createEchoModel('App.Models.Post', postId, ['PostUpdated'], (e) => {
+    const modelChannel = createEchoModel('App.Models.Post', postId, ['PostUpdated'], (e) => {
         modelEvents = [...modelEvents, {
             model: e.model,
             timestamp: new Date().toISOString(),
@@ -54,7 +63,7 @@
 
     // 6. Notifications
     let notifications = $state([]);
-    createEchoNotification(`App.Models.User.${userId}`, (notification) => {
+    const notificationChannel = createEchoNotification(`App.Models.User.${userId}`, (notification) => {
         notifications = [...notifications, {
             id: notification.id,
             type: notification.type,
@@ -63,6 +72,32 @@
             timestamp: notification.timestamp,
         }];
     });
+
+    // Channel control helpers
+    function toggleListening(key, channel) {
+        if (channelState[key].left) return;
+        if (channelState[key].listening) {
+            channel.stopListening();
+            channelState[key].listening = false;
+        } else {
+            channel.listen();
+            channelState[key].listening = true;
+        }
+    }
+
+    function doLeaveChannel(key, channel) {
+        if (channelState[key].left) return;
+        channel.leaveChannel();
+        channelState[key].left = true;
+        channelState[key].listening = false;
+    }
+
+    function doLeave(key, channel) {
+        if (channelState[key].left) return;
+        channel.leave();
+        channelState[key].left = true;
+        channelState[key].listening = false;
+    }
 
     // Trigger helpers
     let loadingState = $state({});
@@ -118,13 +153,41 @@
                 <code class="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">createEchoPublic()</code>
             </div>
             <p class="mb-3 text-xs text-gray-500">Channel: <code>announcements</code> &middot; Event: <code>PublicAnnouncementMade</code></p>
-            <button
-                onclick={() => trigger('/broadcasting/public-event')}
-                disabled={loadingState['/broadcasting/public-event']}
-                class="mb-3 rounded-md bg-blue-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-                {loadingState['/broadcasting/public-event'] ? 'Sending...' : 'Send Public Event'}
-            </button>
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                    onclick={() => trigger('/broadcasting/public-event')}
+                    disabled={loadingState['/broadcasting/public-event']}
+                    class="rounded-md bg-blue-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                    {loadingState['/broadcasting/public-event'] ? 'Sending...' : 'Send Public Event'}
+                </button>
+                <button
+                    onclick={() => toggleListening('public', publicChannel)}
+                    disabled={channelState.public.left}
+                    class="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                >
+                    {channelState.public.listening ? 'Stop Listening' : 'Listen'}
+                </button>
+                <button
+                    onclick={() => doLeaveChannel('public', publicChannel)}
+                    disabled={channelState.public.left}
+                    class="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                >
+                    Leave Channel
+                </button>
+                <button
+                    onclick={() => doLeave('public', publicChannel)}
+                    disabled={channelState.public.left}
+                    class="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                >
+                    Leave All
+                </button>
+                {#if channelState.public.left}
+                    <span class="text-xs font-medium text-red-500">Left</span>
+                {:else if !channelState.public.listening}
+                    <span class="text-xs font-medium text-amber-500">Paused</span>
+                {/if}
+            </div>
             <div class="max-h-40 space-y-1.5 overflow-y-auto">
                 {#each publicEvents as event, i (i)}
                     <div class="rounded bg-blue-50 px-3 py-2 text-sm text-blue-900">
@@ -145,13 +208,41 @@
                 <span class="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-600">private</span>
             </div>
             <p class="mb-3 text-xs text-gray-500">Channel: <code>orders.{user.id}</code> &middot; Event: <code>OrderStatusUpdated</code></p>
-            <button
-                onclick={() => trigger('/broadcasting/private-event')}
-                disabled={loadingState['/broadcasting/private-event']}
-                class="mb-3 rounded-md bg-purple-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-            >
-                {loadingState['/broadcasting/private-event'] ? 'Sending...' : 'Send Private Event'}
-            </button>
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                    onclick={() => trigger('/broadcasting/private-event')}
+                    disabled={loadingState['/broadcasting/private-event']}
+                    class="rounded-md bg-purple-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                    {loadingState['/broadcasting/private-event'] ? 'Sending...' : 'Send Private Event'}
+                </button>
+                <button
+                    onclick={() => toggleListening('private', privateChannel)}
+                    disabled={channelState.private.left}
+                    class="rounded-md border border-purple-300 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-40"
+                >
+                    {channelState.private.listening ? 'Stop Listening' : 'Listen'}
+                </button>
+                <button
+                    onclick={() => doLeaveChannel('private', privateChannel)}
+                    disabled={channelState.private.left}
+                    class="rounded-md border border-purple-300 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-40"
+                >
+                    Leave Channel
+                </button>
+                <button
+                    onclick={() => doLeave('private', privateChannel)}
+                    disabled={channelState.private.left}
+                    class="rounded-md border border-purple-300 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-40"
+                >
+                    Leave All
+                </button>
+                {#if channelState.private.left}
+                    <span class="text-xs font-medium text-red-500">Left</span>
+                {:else if !channelState.private.listening}
+                    <span class="text-xs font-medium text-amber-500">Paused</span>
+                {/if}
+            </div>
             <div class="max-h-40 space-y-1.5 overflow-y-auto">
                 {#each privateEvents as event, i (i)}
                     <div class="rounded bg-purple-50 px-3 py-2 text-sm text-purple-900">
@@ -183,13 +274,41 @@
                 {/if}
             </div>
 
-            <button
-                onclick={() => trigger('/broadcasting/presence-event')}
-                disabled={loadingState['/broadcasting/presence-event']}
-                class="mb-3 rounded-md bg-green-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-                {loadingState['/broadcasting/presence-event'] ? 'Sending...' : 'Send Chat Message'}
-            </button>
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                    onclick={() => trigger('/broadcasting/presence-event')}
+                    disabled={loadingState['/broadcasting/presence-event']}
+                    class="rounded-md bg-green-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                    {loadingState['/broadcasting/presence-event'] ? 'Sending...' : 'Send Chat Message'}
+                </button>
+                <button
+                    onclick={() => toggleListening('presence', presenceChannel)}
+                    disabled={channelState.presence.left}
+                    class="rounded-md border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
+                >
+                    {channelState.presence.listening ? 'Stop Listening' : 'Listen'}
+                </button>
+                <button
+                    onclick={() => doLeaveChannel('presence', presenceChannel)}
+                    disabled={channelState.presence.left}
+                    class="rounded-md border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
+                >
+                    Leave Channel
+                </button>
+                <button
+                    onclick={() => doLeave('presence', presenceChannel)}
+                    disabled={channelState.presence.left}
+                    class="rounded-md border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
+                >
+                    Leave All
+                </button>
+                {#if channelState.presence.left}
+                    <span class="text-xs font-medium text-red-500">Left</span>
+                {:else if !channelState.presence.listening}
+                    <span class="text-xs font-medium text-amber-500">Paused</span>
+                {/if}
+            </div>
             <div class="max-h-40 space-y-1.5 overflow-y-auto">
                 {#each presenceMessages as msg, i (i)}
                     <div class="rounded bg-green-50 px-3 py-2 text-sm text-green-900">
@@ -209,13 +328,41 @@
                 <code class="rounded bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">createEchoModel()</code>
             </div>
             <p class="mb-3 text-xs text-gray-500">Model: <code>App.Models.Post.{post.id}</code> &middot; Events: <code>PostUpdated</code></p>
-            <button
-                onclick={() => trigger('/broadcasting/model-event')}
-                disabled={loadingState['/broadcasting/model-event']}
-                class="mb-3 rounded-md bg-amber-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-            >
-                {loadingState['/broadcasting/model-event'] ? 'Updating...' : 'Update Post'}
-            </button>
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                    onclick={() => trigger('/broadcasting/model-event')}
+                    disabled={loadingState['/broadcasting/model-event']}
+                    class="rounded-md bg-amber-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                    {loadingState['/broadcasting/model-event'] ? 'Updating...' : 'Update Post'}
+                </button>
+                <button
+                    onclick={() => toggleListening('model', modelChannel)}
+                    disabled={channelState.model.left}
+                    class="rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                >
+                    {channelState.model.listening ? 'Stop Listening' : 'Listen'}
+                </button>
+                <button
+                    onclick={() => doLeaveChannel('model', modelChannel)}
+                    disabled={channelState.model.left}
+                    class="rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                >
+                    Leave Channel
+                </button>
+                <button
+                    onclick={() => doLeave('model', modelChannel)}
+                    disabled={channelState.model.left}
+                    class="rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                >
+                    Leave All
+                </button>
+                {#if channelState.model.left}
+                    <span class="text-xs font-medium text-red-500">Left</span>
+                {:else if !channelState.model.listening}
+                    <span class="text-xs font-medium text-amber-500">Paused</span>
+                {/if}
+            </div>
             <div class="max-h-40 space-y-1.5 overflow-y-auto">
                 {#each modelEvents as event, i (i)}
                     <div class="rounded bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -235,13 +382,41 @@
                 <code class="rounded bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">createEchoNotification()</code>
             </div>
             <p class="mb-3 text-xs text-gray-500">Channel: <code>App.Models.User.{user.id}</code></p>
-            <button
-                onclick={() => trigger('/broadcasting/notification')}
-                disabled={loadingState['/broadcasting/notification']}
-                class="mb-3 rounded-md bg-rose-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
-            >
-                {loadingState['/broadcasting/notification'] ? 'Sending...' : 'Send Notification'}
-            </button>
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                    onclick={() => trigger('/broadcasting/notification')}
+                    disabled={loadingState['/broadcasting/notification']}
+                    class="rounded-md bg-rose-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                    {loadingState['/broadcasting/notification'] ? 'Sending...' : 'Send Notification'}
+                </button>
+                <button
+                    onclick={() => toggleListening('notification', notificationChannel)}
+                    disabled={channelState.notification.left}
+                    class="rounded-md border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                >
+                    {channelState.notification.listening ? 'Stop Listening' : 'Listen'}
+                </button>
+                <button
+                    onclick={() => doLeaveChannel('notification', notificationChannel)}
+                    disabled={channelState.notification.left}
+                    class="rounded-md border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                >
+                    Leave Channel
+                </button>
+                <button
+                    onclick={() => doLeave('notification', notificationChannel)}
+                    disabled={channelState.notification.left}
+                    class="rounded-md border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                >
+                    Leave All
+                </button>
+                {#if channelState.notification.left}
+                    <span class="text-xs font-medium text-red-500">Left</span>
+                {:else if !channelState.notification.listening}
+                    <span class="text-xs font-medium text-amber-500">Paused</span>
+                {/if}
+            </div>
             <div class="max-h-40 space-y-1.5 overflow-y-auto">
                 {#each notifications as notif (notif.id)}
                     <div class="rounded bg-rose-50 px-3 py-2 text-sm text-rose-900">
