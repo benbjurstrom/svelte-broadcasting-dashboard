@@ -17,7 +17,19 @@ class BroadcastingDemoController extends Controller
 {
     public function login(): RedirectResponse
     {
-        $user = User::where('email', 'test@example.com')->firstOrFail();
+        $user = User::firstOrFail();
+        auth()->login($user);
+
+        return redirect()->route('broadcasting.index');
+    }
+
+    public function switchUser(Request $request): RedirectResponse
+    {
+        auth()->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        $user = User::where('id', $request->input('user_id'))->firstOrFail();
         auth()->login($user);
 
         return redirect()->route('broadcasting.index');
@@ -27,6 +39,7 @@ class BroadcastingDemoController extends Controller
     {
         $user = $request->user();
         $post = Post::where('user_id', $user->id)->firstOrFail();
+        $allUsers = User::select('id', 'name')->orderBy('id')->get();
 
         return Inertia::render('Broadcasting', [
             'user' => [
@@ -39,6 +52,7 @@ class BroadcastingDemoController extends Controller
                 'title' => $post->title,
                 'body' => $post->body,
             ],
+            'allUsers' => $allUsers,
         ]);
     }
 

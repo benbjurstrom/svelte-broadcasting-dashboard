@@ -16,13 +16,22 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $user = User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $user1 = User::factory()->create([
+            'name' => 'Alice',
+            'email' => 'alice@example.com',
         ]);
 
         Post::factory()->create([
-            'user_id' => $user->id,
+            'user_id' => $user1->id,
+        ]);
+
+        $user2 = User::factory()->create([
+            'name' => 'Bob',
+            'email' => 'bob@example.com',
+        ]);
+
+        Post::factory()->create([
+            'user_id' => $user2->id,
         ]);
     }
 }

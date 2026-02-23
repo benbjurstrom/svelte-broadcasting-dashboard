@@ -10,7 +10,7 @@
     } from '@laravel/echo-svelte';
     import { untrack } from 'svelte';
 
-    let { user, post } = $props();
+    let { user, post, allUsers } = $props();
 
     const userId = untrack(() => user.id);
     const postId = untrack(() => post.id);
@@ -92,13 +92,6 @@
         channelState[key].listening = false;
     }
 
-    function doLeave(key, channel) {
-        if (channelState[key].left) return;
-        channel.leave();
-        channelState[key].left = true;
-        channelState[key].listening = false;
-    }
-
     // Trigger helpers
     let loadingState = $state({});
     function trigger(route) {
@@ -123,6 +116,25 @@
     function formatTime(timestamp) {
         return new Date(timestamp).toLocaleTimeString();
     }
+
+    let switching = $state(false);
+
+    async function switchUser(userId) {
+        if (userId === user.id || switching) return;
+        switching = true;
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        await fetch('/switch-user', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({ user_id: userId }),
+        });
+
+        window.location.href = '/';
+    }
 </script>
 
 <svelte:head>
@@ -131,9 +143,24 @@
 
 <div class="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl">
-        <div class="mb-8">
-            <h1 class="text-2xl font-bold text-gray-900">Broadcasting Demo</h1>
-            <p class="mt-1 text-sm text-gray-500">Logged in as {user.name} &middot; All echo-svelte helpers in action</p>
+        <div class="mb-8 flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Broadcasting Demo</h1>
+                <p class="mt-1 text-sm text-gray-500">Logged in as {user.name} &middot; All echo-svelte helpers in action</p>
+            </div>
+            <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1">
+                {#each allUsers as u (u.id)}
+                    <button
+                        onclick={() => switchUser(u.id)}
+                        disabled={switching}
+                        class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors {u.id === user.id
+                            ? 'bg-gray-900 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'} disabled:opacity-50"
+                    >
+                        {u.name}
+                    </button>
+                {/each}
+            </div>
         </div>
 
         <!-- 1. Connection Status -->
@@ -155,11 +182,11 @@
             <p class="mb-3 text-xs text-gray-500">Channel: <code>announcements</code> &middot; Event: <code>PublicAnnouncementMade</code></p>
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <button
-                    onclick={() => trigger('/broadcasting/public-event')}
-                    disabled={loadingState['/broadcasting/public-event']}
+                    onclick={() => trigger('/public-event')}
+                    disabled={loadingState['/public-event']}
                     class="rounded-md bg-blue-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                    {loadingState['/broadcasting/public-event'] ? 'Sending...' : 'Send Public Event'}
+                    {loadingState['/public-event'] ? 'Sending...' : 'Send Public Event'}
                 </button>
                 <button
                     onclick={() => toggleListening('public', publicChannel)}
@@ -174,13 +201,6 @@
                     class="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
                 >
                     Leave Channel
-                </button>
-                <button
-                    onclick={() => doLeave('public', publicChannel)}
-                    disabled={channelState.public.left}
-                    class="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
-                >
-                    Leave All
                 </button>
                 {#if channelState.public.left}
                     <span class="text-xs font-medium text-red-500">Left</span>
@@ -210,11 +230,11 @@
             <p class="mb-3 text-xs text-gray-500">Channel: <code>orders.{user.id}</code> &middot; Event: <code>OrderStatusUpdated</code></p>
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <button
-                    onclick={() => trigger('/broadcasting/private-event')}
-                    disabled={loadingState['/broadcasting/private-event']}
+                    onclick={() => trigger('/private-event')}
+                    disabled={loadingState['/private-event']}
                     class="rounded-md bg-purple-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
                 >
-                    {loadingState['/broadcasting/private-event'] ? 'Sending...' : 'Send Private Event'}
+                    {loadingState['/private-event'] ? 'Sending...' : 'Send Private Event'}
                 </button>
                 <button
                     onclick={() => toggleListening('private', privateChannel)}
@@ -229,13 +249,6 @@
                     class="rounded-md border border-purple-300 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-40"
                 >
                     Leave Channel
-                </button>
-                <button
-                    onclick={() => doLeave('private', privateChannel)}
-                    disabled={channelState.private.left}
-                    class="rounded-md border border-purple-300 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-40"
-                >
-                    Leave All
                 </button>
                 {#if channelState.private.left}
                     <span class="text-xs font-medium text-red-500">Left</span>
@@ -276,11 +289,11 @@
 
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <button
-                    onclick={() => trigger('/broadcasting/presence-event')}
-                    disabled={loadingState['/broadcasting/presence-event']}
+                    onclick={() => trigger('/presence-event')}
+                    disabled={loadingState['/presence-event']}
                     class="rounded-md bg-green-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                 >
-                    {loadingState['/broadcasting/presence-event'] ? 'Sending...' : 'Send Chat Message'}
+                    {loadingState['/presence-event'] ? 'Sending...' : 'Send Chat Message'}
                 </button>
                 <button
                     onclick={() => toggleListening('presence', presenceChannel)}
@@ -295,13 +308,6 @@
                     class="rounded-md border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
                 >
                     Leave Channel
-                </button>
-                <button
-                    onclick={() => doLeave('presence', presenceChannel)}
-                    disabled={channelState.presence.left}
-                    class="rounded-md border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
-                >
-                    Leave All
                 </button>
                 {#if channelState.presence.left}
                     <span class="text-xs font-medium text-red-500">Left</span>
@@ -330,11 +336,11 @@
             <p class="mb-3 text-xs text-gray-500">Model: <code>App.Models.Post.{post.id}</code> &middot; Events: <code>PostUpdated</code></p>
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <button
-                    onclick={() => trigger('/broadcasting/model-event')}
-                    disabled={loadingState['/broadcasting/model-event']}
+                    onclick={() => trigger('/model-event')}
+                    disabled={loadingState['/model-event']}
                     class="rounded-md bg-amber-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
                 >
-                    {loadingState['/broadcasting/model-event'] ? 'Updating...' : 'Update Post'}
+                    {loadingState['/model-event'] ? 'Updating...' : 'Update Post'}
                 </button>
                 <button
                     onclick={() => toggleListening('model', modelChannel)}
@@ -349,13 +355,6 @@
                     class="rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40"
                 >
                     Leave Channel
-                </button>
-                <button
-                    onclick={() => doLeave('model', modelChannel)}
-                    disabled={channelState.model.left}
-                    class="rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40"
-                >
-                    Leave All
                 </button>
                 {#if channelState.model.left}
                     <span class="text-xs font-medium text-red-500">Left</span>
@@ -384,11 +383,11 @@
             <p class="mb-3 text-xs text-gray-500">Channel: <code>App.Models.User.{user.id}</code></p>
             <div class="mb-3 flex flex-wrap items-center gap-2">
                 <button
-                    onclick={() => trigger('/broadcasting/notification')}
-                    disabled={loadingState['/broadcasting/notification']}
+                    onclick={() => trigger('/notification')}
+                    disabled={loadingState['/notification']}
                     class="rounded-md bg-rose-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
                 >
-                    {loadingState['/broadcasting/notification'] ? 'Sending...' : 'Send Notification'}
+                    {loadingState['/notification'] ? 'Sending...' : 'Send Notification'}
                 </button>
                 <button
                     onclick={() => toggleListening('notification', notificationChannel)}
@@ -403,13 +402,6 @@
                     class="rounded-md border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
                 >
                     Leave Channel
-                </button>
-                <button
-                    onclick={() => doLeave('notification', notificationChannel)}
-                    disabled={channelState.notification.left}
-                    class="rounded-md border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-40"
-                >
-                    Leave All
                 </button>
                 {#if channelState.notification.left}
                     <span class="text-xs font-medium text-red-500">Left</span>
